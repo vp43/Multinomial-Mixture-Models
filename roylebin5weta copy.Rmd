@@ -1,0 +1,157 @@
+---
+title: "5 bin model  - royle model  - weta data"
+author: "Vishnu"
+date: "5/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+#clear the environment
+rm(list = ls(all.names = TRUE))
+library(unmarked)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(DataCombine)
+library(data.table)
+library(shinydashboard)
+library(BBmisc)
+library(auk)
+
+# a utility function, inverse-logit transform
+expit<-function (mu)
+{
+    1/((1/exp(mu)) + 1)
+}
+```
+
+```{r}
+# This function evaluates the negative log-likelihood function. A multinomial logit transform is used for the latent index distribution
+negloglik<-function(x,pim,vars = NULL){
+pim[5:10]<-length(unique(pim[1:4]))+pim[5:10]
+nparm<-length(unique(pim))
+
+#print(x[11])
+# add sitecovs to psi 
+#psi1<-x[(nparm+1):(nparm+4)]
+#psi<-exp(c(0,psi))/sum( exp(c(0,psi)))
+
+if(length(vars)>0){
+  covparms<-x[ (nparm+4):length(x)]
+  names(covparms)<-vars
+  obscovparms<-c(0,0,0,0,0,0,0,0,0)
+  names(obscovparms)<-c("duration_minutes","time_observations_started","effort_distance_km","number_observers","day_of_year","elevation_mean_600","summer_nbr_TCA_mean_600","summer_nbr_TCG_mean_600","summer_nbr_TCW_mean_600")
+  obscovparms[vars]<-covparms
+  duration_minutes = obscovparms[1]
+  time_observations_started = obscovparms[2]
+  effort_distance_km = obscovparms[3]
+  number_observers = obscovparms[4]
+  day_of_year = obscovparms[5]
+  elevation_mean_600 = obscovparms[6]
+  summer_nbr_TCA_mean_600 = obscovparms[7]
+  summer_nbr_TCG_mean_600 = obscovparms[8]
+  summer_nbr_TCW_mean_600 = obscovparms[9]
+}
+else{
+  duration_minutes<-time_observations_started<-effort_distance_km<-number_observers<-day_of_year<-elevation_mean_600<-summer_nbr_TCA_mean_600<-summer_nbr_TCG_mean_600<-summer_nbr_TCW_mean_600<-0
+}
+
+
+x1<-x[pim]
+beta21<-expit(x1[5])
+beta31<-expit(x1[6])
+beta32<-expit(x1[7])
+beta41<-expit(x1[8])
+beta42<-expit(x1[9])
+beta43<-expit(x1[10])
+
+
+cs<-rep(NA,nrow(M))
+
+for(i in 1:nrow(M)){
+  
+# add sitecovs to psi 
+psi<-x[(nparm+1):(nparm+4)] + elevation_mean_600*allcovs$elevation_mean_600[i]+ summer_nbr_TCA_mean_600*allcovs$summer_nbr_TCA_mean_600[i]+ summer_nbr_TCG_mean_600*allcovs$summer_nbr_TCG_mean_600[i]+ summer_nbr_TCW_mean_600*allcovs$summer_nbr_TCW_mean_600[i]
+psi<-exp(c(0,psi))/sum( exp(c(0,psi)))
+
+lik<-matrix(NA,nrow=5,ncol=ncol(M))
+for(j in 1:ncol(M)){
+  
+p1<-expit(x1[1]+duration_minutes*allcovs$duration_minutes[i]+time_observations_started*allcovs$time_observations_started[i]+effort_distance_km*allcovs$effort_distance_km[i]+number_observers*allcovs$number_observers[i]+day_of_year*allcovs$day_of_year[i])
+p2<-expit(x1[2]+duration_minutes*allcovs$duration_minutes[i]+time_observations_started*allcovs$time_observations_started[i]+effort_distance_km*allcovs$effort_distance_km[i]+number_observers*allcovs$number_observers[i]+day_of_year*allcovs$day_of_year[i])
+p3<-expit(x1[3]+duration_minutes*allcovs$duration_minutes[i]+time_observations_started*allcovs$time_observations_started[i]+effort_distance_km*allcovs$effort_distance_km[i]+number_observers*allcovs$number_observers[i]+day_of_year*allcovs$day_of_year[i])
+p4<-expit(x1[4]+duration_minutes*allcovs$duration_minutes[i]+time_observations_started*allcovs$time_observations_started[i]+effort_distance_km*allcovs$effort_distance_km[i]+number_observers*allcovs$number_observers[i]+day_of_year*allcovs$day_of_year[i])
+
+
+c2<-c(1-p1,p1)
+c3<-c((1-beta21)*(1-p2),beta21*(1-p2),p2)
+c4<-c((1-beta31)*(1-beta32)*(1-p3),beta31*(1-beta32)*(1-p3),beta32*(1-p3),p3)
+c5<-c((1-beta41)*(1-beta42)*(1-beta43)*(1-p4),beta41*(1-beta42)*(1-beta43)*(1-p4),beta42*(1-beta43)*(1-p4),beta43*(1-p4),p4)
+
+P<-matrix(0,5,5)
+P[1,1]<-1
+P[1:2,2]<-c2
+P[1:3,3]<-c3
+P[1:4,4]<-c4
+P[1:5,5]<-c5
+
+
+if(!is.na(M[i,j])){
+# probabilities of observed value for each N=0-5 state
+this.p<-  P[M[i,j]+1, ]
+lik[,j]<- this.p
+}
+else{
+lik[,j]<-1
+}
+}
+cs[i]<-sum(apply(lik,1,prod)*psi)
+
+}
+-2*sum(log(cs))
+}
+
+```
+
+
+
+```{r}
+wetadata_files  = load("wetadf_1000.RData") # contains counts, covariates, normalized datas etc. 
+
+allcovs = allcovs # normalized tables -> both site and obs covariates [ order - duration_minutes, time_observations_started, effort_distance_km, number_observers, day_of_year, elevation_mean_600, summer_nbr_TCA_mean_600, summer_nbr_TCG_mean_600, summer_nbr_TCW_mean_600 ]
+
+#Parameter index vector
+#p1,p2,p3,p4,b21,b31,b32,b41,b42,b43
+PIM<-c(1,2,3,4,5,6,7,8,9,10)
+#startipointng 14 ( 10 + 4 ) values (last 4 values for psi)
+st<-c(.01, .02, .03, .04, -.05, .06, .07, -.08, .09, -.10, .11, -.12, .13, .14)
+
+
+# Fit model contained in Row 1 of Table 2 of Royle and Link. Note that
+# the basic detection probability structure is determined by the PIM vector
+# (passed to nlm using the pim= argument) whereas the covariate #structure
+# is passed as a character vector, "vars"
+out2 <- nlm(negloglik,st,pim=PIM,vars=c("allcovs"), hessian=T)
+out2
+```
+
+
+```{r}
+#psi - represents latent abundance - true bin count
+psi1<-exp(c(0,out2$estimate[11:14]))/sum( exp(c(0,out2$estimate[11:14])))  #multinomial logit
+psi1
+```
+
+```{r}
+psi2 = c(0.861561040,0.098681203,0.027252786,0.007815601,0.004689370)
+sum(psi2)
+library(car)
+x = c(0,1,2,3,4)
+plot(x,psi2,type='o',pch='o',xlab="bin index",ylab="psi")
+```
+
+
+

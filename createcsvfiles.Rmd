@@ -1,0 +1,126 @@
+---
+title: "createcsvfiles"
+author: "Vishnu"
+date: "10/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(unmarked)
+library(rstack)
+library(R6DS)
+library(lme4)
+library(MuMIn)
+library(ggplot2)
+library(broom)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(reshape2)
+library(DataCombine)
+library(blockCV)
+library(raster)
+library(sf)
+library(precrec)
+library(data.table)
+library(shinydashboard)
+library(optparse)
+library(BBmisc)
+library(auk)
+```
+
+
+```{r}
+#### load data ####
+
+wetadata <- read.csv("weta_data_baseline_merged_1000.csv", header=TRUE,sep=",",dec=".", stringsAsFactors=FALSE, fill=TRUE)
+wetadata
+
+```
+
+```{r}
+#### format the date and filter data for repeated visits####
+wetadata$observation_date <- as.character(wetadata$observation_date)
+wetadata$formatted_date <- as.Date(as.character(wetadata$observation_date), '%Y%m%d')
+
+
+abd = filter_repeat_visits(wetadata,annual_closure = TRUE,
+  date_var = "formatted_date"
+  )
+abd
+```
+
+```{r}
+library(binr)
+numbers_bins = bins(abd$observation_count, target.bins = 5, minpts = 1)
+numbers_bins
+```
+
+```{r}
+#### assigning bins ####
+#bins 0-10 - 0, 11-20 -1 ......91-100 - 9
+#hist(M,main = "distribution of population")
+abd$observation_count[abd$observation_count==0] <- 0 
+abd$observation_count[abd$observation_count==1] <- 1 
+abd$observation_count[abd$observation_count==2] <- 2 
+abd$observation_count[abd$observation_count==3] <- 3 
+abd$observation_count[abd$observation_count>=4 & abd$observation_count<=8] <- 4
+abd
+
+```
+
+```{r}
+maxrow = nrow(abd)
+maxcol = max(abd$n_observations)
+# observation count
+matrix = matrix(NA,maxrow,maxcol)
+library(rstack)
+nobs <- RStack$new()
+ncount <- RStack$new()
+
+for (i in maxrow:1){
+nobs$push(abd$n_observations[i])
+ncount$push(abd$observation_count[i])
+}
+nobs
+ncount
+
+for (row in 1:maxrow){
+  if(!nobs$is_empty()){
+    obs = nobs$pop()
+    counts = ncount$pop()
+    fills = counts
+  }
+  else{
+      break()
+    }
+  for (col in 1:maxcol){
+    if(obs>0){
+      matrix[row,col] = fills
+      obs = obs - 1
+    }
+  }
+}
+
+#abd$n_observations
+#abd$observation_count
+
+count_obs = normalize(data.frame(matrix))
+write.csv(count_obs,"obscount.csv",row.names = FALSE)
+
+```
+
+
+```{r}
+allcovs = normalize(data.frame("duration_minutes"=abd$duration_minutes,"time_observations_started"=abd$time_observations_started,"effort_distance_km"=abd$effort_distance_km,"number_observers"=abd$number_observers,"day_of_year"=abd$day_of_year,"elevation_mean_600"=abd$elevation_mean_600,"summer_nbr_TCA_mean_600"=abd$summer_nbr_TCA_mean_600,"summer_nbr_TCG_mean_600"=abd$summer_nbr_TCG_mean_600,"summer_nbr_TCW_mean_600"=abd$summer_nbr_TCW_mean_600))
+write.csv(allcovs,"covariates.csv")
+```
+
+
+
+
+
+
+
+
